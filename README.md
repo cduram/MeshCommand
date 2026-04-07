@@ -24,14 +24,13 @@ pip install -r requirements.txt
 
 ### 2. Configure your Meshtastic radio
 
-Make sure your Meshtastic devices share a private channel. MeshCommand defaults to **channel 1** (channel 0 is the public default). Both the Pi's radio and your sending device must be on the same channel with the same encryption key.
+Make sure your Meshtastic devices share a private channel. MeshCommand defaults to **channel 2** (channel 0 is the public default). Both the Pi's radio and your sending device must be on the same channel with the same encryption key.
 
 ### 3. Edit config.yaml
 
 ```yaml
 device: auto       # "auto" to auto-detect, or a serial port like /dev/ttyUSB0
-channel: 1         # Meshtastic channel index to listen on
-command_prefix: "!" # Prefix that triggers command parsing
+channel: 2         # Meshtastic channel index to listen on
 ```
 
 See [Configuration](#configuration) for full details.
@@ -45,6 +44,14 @@ python3 meshcommand.py
 Send `!ping` from another Meshtastic device on the same channel. You should get `pong` back.
 
 ### 5. Install as a systemd service
+
+The included install script copies files to `/opt/meshcommand`, installs dependencies, and enables the service:
+
+```bash
+sudo ./install.sh
+```
+
+Or install manually:
 
 ```bash
 sudo cp meshcommand.service /etc/systemd/system/
@@ -71,23 +78,37 @@ A log file is also written to `meshcommand.log` in the working directory.
 
 From any Meshtastic device on the same channel, send text messages prefixed with `!`:
 
+### Built-in commands
+
+These are hardcoded in `meshcommand.py` and always available:
+
 | Command | Description |
 |---------|-------------|
 | `!help` | List all available commands |
 | `!ping` | Connectivity test (responds with "pong") |
 | `!status` | Service uptime, command count, last RSSI |
-| `!sysinfo` | System info and IP addresses |
+| `!battery` | Battery level and voltage |
+| `!radio` | Firmware version, hardware model, region |
+| `!airtime` | Channel utilization and TX airtime |
+| `!nodes` | List known mesh nodes with signal and last-seen time |
+| `!signal` | Per-node signal quality (SNR and hops) |
+
+### Default custom commands
+
+These ship in `config.yaml` and can be modified or removed:
+
+| Command | Description |
+|---------|-------------|
+| `!sysinfo` | System info (uname + IP addresses) |
 | `!uptime` | System uptime |
-| `!disk` | Disk usage |
+| `!whoami` | Current user |
 | `!temp` | CPU temperature |
 | `!mem` | Memory usage |
 | `!ip` | Network interfaces |
-| `!services` | Failed systemd services |
-| `!who` | Logged in users |
+| `!extip` | External IP address |
 | `!reboot confirm` | Reboot the Pi (requires confirmation) |
-| `!shutdown confirm` | Shutdown the Pi (requires confirmation) |
 
-Dangerous commands like `!reboot` and `!shutdown` require the word `confirm` as an argument to prevent accidental execution.
+Commands with `confirm: true` in the config require the word `confirm` as an argument to prevent accidental execution.
 
 ## Configuration
 
@@ -98,8 +119,7 @@ All settings are in `config.yaml`:
 | Key | Default | Description |
 |-----|---------|-------------|
 | `device` | `auto` | Serial port or `"auto"` to auto-detect |
-| `channel` | `1` | Meshtastic channel index (0 = public, 1+ = private) |
-| `command_prefix` | `!` | Prefix that triggers command parsing |
+| `channel` | `2` | Meshtastic channel index (0 = public, 1+ = private) |
 
 ### Response settings
 
@@ -109,6 +129,7 @@ All settings are in `config.yaml`:
 | `chunk_delay` | `3.0` | Seconds between chunks (mesh needs time to transmit) |
 | `command_timeout` | `10` | Max seconds for shell command execution |
 | `max_chunks` | `10` | Max chunks per response (prevents mesh flooding) |
+| `command_prefix` | `!` | Prefix that triggers command parsing |
 
 ### Adding custom commands
 
@@ -137,9 +158,11 @@ commands:
 
 1. MeshCommand connects to a Meshtastic radio over USB serial
 2. It subscribes to incoming mesh messages on the configured channel
-3. Messages starting with the command prefix are parsed and dispatched
-4. Shell commands run via `subprocess` with a configurable timeout
-5. Output is split into chunks (LoRa bandwidth is limited) and sent back over the mesh with delays between each chunk
+3. On startup, it announces itself on the mesh with its IP address
+4. Messages starting with the command prefix are parsed and dispatched
+5. Shell commands run via `subprocess` with a configurable timeout
+6. Output is split into chunks (LoRa bandwidth is limited) and sent back over the mesh with delays between each chunk
+7. If the radio disconnects, MeshCommand reconnects automatically with exponential backoff
 
 Responses longer than `max_chunk_bytes * max_chunks` (default: 2KB) are truncated.
 
@@ -149,6 +172,7 @@ Responses longer than `max_chunk_bytes * max_chunks` (default: 2KB) are truncate
 meshcommand/
 ├── meshcommand.py        # Main service
 ├── config.yaml           # Configuration
+├── install.sh            # One-line installer (copies to /opt, enables systemd)
 ├── meshcommand.service   # Systemd unit file
 ├── requirements.txt      # Python dependencies
 └── README.md
