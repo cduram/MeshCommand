@@ -1,0 +1,13 @@
+[Unit]
+Description=MeshCommand - Meshtastic Remote Control
+After=multi-user.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/meshcommand/meshcommand.py
+WorkingDirectory=/opt/meshcommand
+Restart=always
+RestartSec=10
+User=pi
+
+[Install]
+WantedBy=multi-user.target

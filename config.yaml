@@ -1,0 +1,47 @@
+# MeshCommand Configuration
+# -------------------------
+# Device settings
+device: auto                # Serial port, or "auto" to auto-detect
+channel: 2                  # Meshtastic channel index (0 = default/public, 1+ = private)
+
+# Response settings
+max_chunk_bytes: 200        # Max text per message (Meshtastic limit ~233)
+chunk_delay: 3.0            # Seconds between chunks (mesh needs time to transmit)
+command_timeout: 10         # Max seconds for shell command execution
+max_chunks: 10              # Max chunks per response (prevents mesh flooding)
+command_prefix: "!"         # Prefix that triggers command parsing
+
+# Command definitions
+commands:
+  - name: sysinfo
+    help: "System info (uname + IP addresses)"
+    command: "uname -a && hostname -I"
+
+  - name: uptime
+    help: "System uptime"
+    command: "uptime -p"
+
+  - name: whoami
+    help: "whoami"
+    command: "whoami"
+
+  - name: temp
+    help: "CPU temperature"
+    command: "vcgencmd measure_temp"
+
+  - name: mem
+    help: "Memory usage"
+    command: "free -h | head -2"
+
+  - name: ip
+    help: "Network interfaces"
+    command: "hostname -I"
+
+  - name: extip
+    help: "External IP address"
+    command: "curl -s https://ifconfig.me"
+
+  - name: reboot
+    help: "Reboot the Pi (requires !reboot confirm)"
+    command: "sudo reboot"
+    confirm: true
