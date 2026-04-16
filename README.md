@@ -154,6 +154,28 @@ commands:
 | `command` | Yes | Shell command to execute |
 | `confirm` | No | If `true`, requires `confirm` argument to run |
 
+### Scheduled broadcasts
+
+The `schedules` list runs commands automatically and broadcasts their output to the channel — useful for periodic telemetry (uptime, temperature, sensor readings) without anyone needing to ask.
+
+```yaml
+schedules:
+  - name: hourly-uptime
+    command: "uptime -p"
+    interval: 3600       # seconds
+  - name: temp-watch
+    command: "vcgencmd measure_temp"
+    interval: 1800
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Label included in the broadcast as `[sched:<name>]` |
+| `command` | Yes | Shell command to execute |
+| `interval` | Yes | Seconds between runs |
+
+Each schedule waits one full interval before its first run, so restarting the service doesn't immediately flood the mesh. Output is sent on the configured channel prefixed with `[sched:<name>]` so recipients can distinguish scheduled broadcasts from responses to their own commands.
+
 ## How it works
 
 1. MeshCommand connects to a Meshtastic radio over USB serial

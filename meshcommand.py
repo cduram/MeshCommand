@@ -10,6 +10,7 @@ import logging.handlers
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -38,6 +39,9 @@ class MeshCommand:
         self.start_time = time.time()
         self.last_rssi = None
         self.running = True
+        # Serializes mesh sends so scheduled broadcasts and command responses
+        # don't interleave their chunks
+        self._send_lock = threading.Lock()
 
     def _load_config(self, config_path):
         path = Path(config_path)
@@ -325,41 +329,42 @@ class MeshCommand:
         return chunks
 
     def _send_response(self, text):
-        channel = self.config.get("channel", 1)
-        max_bytes = self.config.get("max_chunk_bytes", 200)
-        chunk_delay = self.config.get("chunk_delay", 3.0)
-        max_chunks = self.config.get("max_chunks", 10)
+        with self._send_lock:
+            channel = self.config.get("channel", 1)
+            max_bytes = self.config.get("max_chunk_bytes", 200)
+            chunk_delay = self.config.get("chunk_delay", 3.0)
+            max_chunks = self.config.get("max_chunks", 10)
 
-        # Reserve space for chunk prefix like "[10/10] "
-        prefix_reserve = 10
-        chunk_limit = max_bytes - prefix_reserve
+            # Reserve space for chunk prefix like "[10/10] "
+            prefix_reserve = 10
+            chunk_limit = max_bytes - prefix_reserve
 
-        # Truncate if too long
-        max_total = chunk_limit * max_chunks
-        text_bytes = text.encode("utf-8")
-        if len(text_bytes) > max_total:
-            text = text_bytes[:max_total - 20].decode("utf-8", errors="ignore") + "\n... (truncated)"
+            # Truncate if too long
+            max_total = chunk_limit * max_chunks
+            text_bytes = text.encode("utf-8")
+            if len(text_bytes) > max_total:
+                text = text_bytes[:max_total - 20].decode("utf-8", errors="ignore") + "\n... (truncated)"
 
-        # Split into chunks by byte size
-        chunks = self._split_bytes(text, chunk_limit)
+            # Split into chunks by byte size
+            chunks = self._split_bytes(text, chunk_limit)
 
-        total = len(chunks)
-        for i, chunk in enumerate(chunks):
-            if total > 1:
-                msg = f"[{i + 1}/{total}] {chunk}"
-            else:
-                msg = chunk
+            total = len(chunks)
+            for i, chunk in enumerate(chunks):
+                if total > 1:
+                    msg = f"[{i + 1}/{total}] {chunk}"
+                else:
+                    msg = chunk
 
-            log.info("Sending chunk %d/%d (%d bytes)", i + 1, total, len(msg))
-            try:
-                self.interface.sendText(msg, channelIndex=channel)
-            except Exception:
-                log.exception("Failed to send chunk %d/%d, reconnecting", i + 1, total)
-                self._reconnect()
-                break
+                log.info("Sending chunk %d/%d (%d bytes)", i + 1, total, len(msg))
+                try:
+                    self.interface.sendText(msg, channelIndex=channel)
+                except Exception:
+                    log.exception("Failed to send chunk %d/%d, reconnecting", i + 1, total)
+                    self._reconnect()
+                    break
 
-            if i < total - 1:
-                time.sleep(chunk_delay)
+                if i < total - 1:
+                    time.sleep(chunk_delay)
 
     def _connect(self):
         from meshtastic.serial_interface import SerialInterface
@@ -381,6 +386,44 @@ class MeshCommand:
                 log.exception("Connection failed, retrying in %ds...", delay)
                 time.sleep(delay)
                 delay = min(delay * 2, max_delay)
+
+    def _start_schedules(self):
+        schedules = self.config.get("schedules") or []
+        for sched in schedules:
+            name = sched.get("name")
+            shell_cmd = sched.get("command")
+            interval = sched.get("interval")
+            if not name or not shell_cmd or not isinstance(interval, (int, float)) or interval <= 0:
+                log.warning("Skipping invalid schedule entry: %s", sched)
+                continue
+            thread = threading.Thread(
+                target=self._schedule_loop,
+                args=(name, shell_cmd, int(interval)),
+                daemon=True,
+                name=f"sched-{name}",
+            )
+            thread.start()
+            log.info("Schedule '%s' started: %s (every %ds)", name, shell_cmd, interval)
+
+    def _schedule_loop(self, name, shell_cmd, interval):
+        # Wait one full interval before first fire so restarts don't spam the mesh
+        self._sleep_until(time.time() + interval)
+        while self.running:
+            log.info("Schedule '%s' firing: %s", name, shell_cmd)
+            try:
+                output = self._execute(shell_cmd)
+                self._send_response(f"[sched:{name}]\n{output}")
+            except Exception:
+                log.exception("Schedule '%s' failed", name)
+            self._sleep_until(time.time() + interval)
+
+    def _sleep_until(self, deadline):
+        """Sleep in short slices so shutdown is responsive."""
+        while self.running:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return
+            time.sleep(min(1.0, remaining))
 
     def _reconnect(self):
         log.warning("Attempting to reconnect...")
@@ -419,6 +462,9 @@ class MeshCommand:
             self._send_response(f"MeshCommand up at {addr} at {now}")
         except Exception:
             log.exception("Startup announcement failed")
+
+        # Start scheduled broadcasts
+        self._start_schedules()
 
         # Main loop
         try:

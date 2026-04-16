@@ -45,3 +45,18 @@ commands:
     help: "Reboot the Pi (requires !reboot confirm)"
     command: "sudo reboot"
     confirm: true
+
+# Scheduled broadcasts
+# -------------------------
+# Commands that fire automatically and broadcast the output to the channel.
+# Each schedule waits one full interval before its first run (so restarts
+# don't spam the mesh). Output is labeled "[sched:<name>]".
+#
+# schedules:
+#   - name: hourly-uptime
+#     command: "uptime -p"
+#     interval: 3600       # seconds
+#   - name: temp-watch
+#     command: "vcgencmd measure_temp"
+#     interval: 1800
+schedules: []
