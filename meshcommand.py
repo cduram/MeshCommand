@@ -305,6 +305,8 @@ class MeshCommand:
 
     def _split_bytes(self, text, max_bytes):
         """Split text into chunks that each fit within max_bytes when UTF-8 encoded."""
+        # Must fit at least one UTF-8 character (max 4 bytes) to guarantee progress
+        max_bytes = max(max_bytes, 4)
         chunks = []
         encoded = text.encode("utf-8")
         while encoded:
@@ -315,6 +317,9 @@ class MeshCommand:
             cut = max_bytes
             while cut > 0 and (encoded[cut] & 0xC0) == 0x80:
                 cut -= 1
+            if cut == 0:
+                # Pathological input; force progress to avoid infinite loop
+                cut = max_bytes
             chunks.append(encoded[:cut].decode("utf-8", errors="replace"))
             encoded = encoded[cut:]
         return chunks
